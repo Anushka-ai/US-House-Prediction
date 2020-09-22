@@ -1,0 +1,141 @@
+import pandas as pd
+from datetime import datetime
+import matplotlib
+%matplotlib inline
+%config InlineBackend.figure_format = 'svg'
+import matplotlib.pyplot as plt
+plt.style.use('ggplot')
+import numpy as np
+
+from tqdm import tqdm
+
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.metrics import silhouette_score
+from sklearn.datasets import make_blobs
+from sklearn.neighbors import KNeighborsClassifier
+
+from ipywidgets import interactive
+
+from collections import defaultdict
+
+import folium
+import re
+
+#Reading data
+data = pd.read_csv("kc_house_data.csv")
+
+#Viewing data
+data.head()
+#Checking shape of data
+data.shape
+#CHecking datatypes and other information
+data.info()
+#Finding Null Values
+data.isnull().sum()
+#Descriptive Statistics of data
+data.describe().transpose()
+
+EDA PART:
+
+#Finding unique values in the data 
+data.nunique()
+
+#Changing datatype of Date feature.
+data["date"] = pd.to_datetime(data["date"], format='%Y-%m-%d').dt.date
+data["date"] = pd.to_datetime(data["date"])
+data.head()
+
+#Checking Information
+data.info()
+
+#Importing some relevant libraries
+from uszipcode import Zipcode
+from uszipcode import SearchEngine
+search = SearchEngine(simple_zipcode=True)
+
+#Using for() loop for finding information related to zipcode and stored it into new feature city
+for i in list(data['zipcode']):
+    data['city'] = search.by_zipcode(i)
+    
+#Checking the new feature city in the data 
+data.head()
+
+#Checking for a particular zipcode
+city = search.by_zipcode("98178")
+city.major_city
+
+#Converting city column datatype to string
+data["city"] = data["city"].astype(str)
+data.info()
+
+#Storing latitude and longitude into X variable
+X = np.array(data[['long', 'lat']], dtype='float64')
+
+#Plotting scatterplot for X
+plt.scatter(X[:,0], X[:,1], alpha=0.2, s=50)
+
+#Using folium library to display the zipcodes on map
+m = folium.Map(location=[data.lat.mean(), data.long.mean()], zoom_start=9, 
+               tiles='Stamen Toner')
+
+for _, row in data.iterrows():
+    folium.CircleMarker(
+        location=[row.lat, row.long],
+        radius=5,
+        popup=re.sub(r'[^a-zA-Z ]+'," " , row.city),
+        color='#1787FE',
+        fill=True,
+        fill_colour='#1787FE'
+    ).add_to(m)
+    
+#Importing SHAP library
+import shap
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+from xgboost.sklearn import XGBRegressor
+from sklearn.metrics import tree
+
+import matplotlib.pyplot as plt
+%matplotlib inline
+import warnings
+warnings.filterwarnings('ignore')
+
+#Train Test Split
+# dropping the ID variables and variables that have been used to extract new variables
+data.drop(["id","date"],axis=1,inplace=True)
+
+# separating the dependent and independent variables
+X = data.drop('price',1)
+y = data['price']
+
+# creating the training and validation set
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.25, random_state=42)
+
+# Initialize SHAP
+# Need to load JS vis in the notebook
+shap.initjs()
+
+#Fitting XGBoost
+xgb_model = XGBRegressor(n_estimators=1000, max_depth=10, learning_rate=0.001, random_state=0)
+xgb_model.fit(X_train, y_train)
+
+#Generating Predictions
+y_predict = xgb_model.predict(X_test)
+
+#Evaluating Performance
+mean_squared_error(y_test, y_predict)**(0.5)
+
+#Local Interpretation using SHAP (for prediction at id number 4776)
+explainer = shap.TreeExplainer(xgb_model)
+shap_values = explainer.shap_values(X_train)
+i = 8009
+shap.force_plot(explainer.expected_value, shap_values[i], 
+                features=X_train.loc[8009], feature_names=X_train.columns)
+                
+#Global Interpretation using Shapley Values
+shap.summary_plot(shap_values, features=X_train, feature_names=X_train.columns)
+
+# Plot summary_plot as barplot:
+shap.summary_plot(shap_values, X_train, plot_type='bar')
